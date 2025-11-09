@@ -10,6 +10,7 @@ import (
 	"github.com/PerumallaGiridhar/oolio/internal/routes/product"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 )
 
 func MemUsage(w http.ResponseWriter, r *http.Request) {
@@ -31,6 +32,14 @@ func NewRouter() *chi.Mux {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.StripSlashes)
 	r.Use(middleware.Heartbeat("/live"))
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"https://*", "http://*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: false,
+		MaxAge:           300,
+	}))
 	r.Get("/stats", MemUsage)
 	r.Route("/api", func(r chi.Router) {
 		r.Use(middleware.AllowContentType("application/json"))

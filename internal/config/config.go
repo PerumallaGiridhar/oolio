@@ -51,11 +51,12 @@ func splitCSV(s string) []string {
 func Load() Config {
 	return Config{
 		Server: ServerConfig{
-			Addr:         getEnvWithDefault("ADDR", ":8080"),
-			ReadTimeout:  getEnvIntWithDefault("READ_TIMEOUT", 5),
-			WriteTimeout: getEnvIntWithDefault("WRITE_TIMEOUT", 10),
-			IdleTimeout:  getEnvIntWithDefault("IDLE_TIMEOUT", 60),
+			Addr:              getEnvWithDefault("ADDR", ":8080"),
+			ReadTimeout:       getEnvIntWithDefault("READ_TIMEOUT", 5),
+			WriteTimeout:      getEnvIntWithDefault("WRITE_TIMEOUT", 10),
+			IdleTimeout:       getEnvIntWithDefault("IDLE_TIMEOUT", 60),
+			ReadHeaderTimeout: getEnvIntWithDefault("READ_HEADER_TIMEOUT", 3),
 		},
-		PromoFiles: splitCSV(getEnvWithDefault("PROMO_FIELS", "/Users/giridhar/Downloads/safe_extract/couponbase1,/Users/giridhar/Downloads/safe_extract/couponbase2,/Users/giridhar/Downloads/safe_extract/couponbase3")),
+		PromoFiles: splitCSV(getEnvWithDefault("PROMO_FILES", "/Users/giridhar/Downloads/safe_extract/couponbase1,/Users/giridhar/Downloads/safe_extract/couponbase2,/Users/giridhar/Downloads/safe_extract/couponbase3")),
 	}
 }

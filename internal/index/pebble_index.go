@@ -1,67 +1,111 @@
 package index
 
 import (
+	"fmt"
 	"strings"
 	"sync"
-
-	erwp "github.com/PerumallaGiridhar/oolio/internal/errorwrap"
 )
 
 type PebbleIndex struct {
 	Stores []*PebbleStore
 }
 
-func NewPebbleIndex(paths []string) *PebbleIndex {
-	stores := make([]*PebbleStore, len(paths))
-	opened := make([]*PebbleStore, len(paths))
+func NewPebbleIndex(paths []string) (*PebbleIndex, error) {
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("no pebble paths provided")
+	}
 
-	var mu sync.Mutex
-	sem := make(chan struct{}, 4)
-	wg := sync.WaitGroup{}
+	stores := make([]*PebbleStore, len(paths))
+
+	var (
+		mu       sync.Mutex
+		opened   []*PebbleStore
+		firstErr error
+		once     sync.Once
+	)
 
 	closeAll := func() {
 		mu.Lock()
 		defer mu.Unlock()
+
 		for _, s := range opened {
-			_ = s.Close()
+			if s != nil {
+				_ = s.Close()
+			}
 		}
-		opened = opened[:0]
+		opened = nil
 	}
 
-	for i, p := range paths {
+	setErr := func(err error) {
+		if err == nil {
+			return
+		}
+		once.Do(func() {
+			firstErr = err
+			closeAll()
+		})
+	}
+
+	sem := make(chan struct{}, 4)
+	var wg sync.WaitGroup
+
+	for i, rawPath := range paths {
+		i, rawPath := i, strings.TrimSpace(rawPath)
+
+		if rawPath == "" {
+			return nil, fmt.Errorf("empty pebble path at index %d", i)
+		}
+
 		wg.Add(1)
-		go func() {
+		go func(idx int, path string) {
 			defer wg.Done()
+
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			ps := EnsurePebble(strings.TrimSpace(p), closeAll)
+			ps, err := EnsurePebble(path)
+			if err != nil {
+				setErr(fmt.Errorf("ensure pebble for %q: %w", path, err))
+				return
+			}
+
 			mu.Lock()
-			defer mu.Unlock()
-			stores[i] = ps
+			stores[idx] = ps
 			opened = append(opened, ps)
-		}()
+			mu.Unlock()
+		}(i, rawPath)
 	}
+
 	wg.Wait()
-	return &PebbleIndex{Stores: stores}
+
+	if firstErr != nil {
+		return nil, firstErr
+	}
+
+	return &PebbleIndex{Stores: stores}, nil
 }
 
 func (pi *PebbleIndex) Close() {
 	for _, s := range pi.Stores {
-		_ = s.Close()
+		if s != nil {
+			_ = s.Close()
+		}
 	}
 }
 
-func (pi *PebbleIndex) IsValid2of3(code string) bool {
+func (pi *PebbleIndex) IsValid2of3(code string) (bool, error) {
 	hits := 0
 	for _, s := range pi.Stores {
-		ok := erwp.LetReturn(erwp.Try(s.Has(code)))
+		ok, err := s.Has(code)
+		if err != nil {
+			return false, err
+		}
 		if ok {
 			hits++
 			if hits >= 2 {
-				return true
+				return true, nil
 			}
 		}
 	}
-	return false
+	return false, nil
 }

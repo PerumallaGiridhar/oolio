@@ -3,11 +3,11 @@ package index
 import (
 	"bufio"
 	"errors"
+	"log"
 	"os"
 	"strings"
 	"time"
 
-	erwp "github.com/PerumallaGiridhar/oolio/internal/errorwrap"
 	"github.com/cockroachdb/pebble"
 )
 
@@ -18,21 +18,38 @@ type PebbleStore struct {
 	Opened time.Time
 }
 
-func EnsurePebble(txtPath string, onErrs ...func()) *PebbleStore {
+func EnsurePebble(txtPath string) (*PebbleStore, error) {
 	dbDir := txtPath + ".peb"
 	opts := &pebble.Options{FormatMajorVersion: pebble.FormatNewest}
 
 	if hasManifest(dbDir) {
-		db := erwp.MustReturn(erwp.Try(pebble.Open(dbDir, opts)), onErrs...)
-		return &PebbleStore{DB: db, Txt: txtPath, DbDir: dbDir, Opened: time.Now()}
+		log.Printf("found pebble indexes for %s", txtPath)
+		db, err := pebble.Open(dbDir, opts)
+		if err != nil {
+			return nil, err
+		}
+		return &PebbleStore{DB: db, Txt: txtPath, DbDir: dbDir, Opened: time.Now()}, nil
 	}
 
-	erwp.MustDo(os.MkdirAll(dbDir, 0o755), onErrs...)
-	db := erwp.MustReturn(erwp.Try(pebble.Open(dbDir, opts)), onErrs...)
-	bulkLoadTxtIntoPebble(db, txtPath, func() { db.Close() })
-	erwp.MustDo(db.Flush(), func() { db.Close() })
+	log.Printf("Building pebble indexes for %s", txtPath)
+	if err := os.MkdirAll(dbDir, 0o755); err != nil {
+		return nil, err
+	}
 
-	return &PebbleStore{DB: db, Txt: txtPath, DbDir: dbDir, Opened: time.Now()}
+	db, err := pebble.Open(dbDir, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := bulkLoadTxtIntoPebble(db, txtPath); err != nil {
+		db.Close()
+	}
+
+	if err := db.Flush(); err != nil {
+		db.Close()
+	}
+
+	return &PebbleStore{DB: db, Txt: txtPath, DbDir: dbDir, Opened: time.Now()}, nil
 }
 
 func (s *PebbleStore) Has(code string) (bool, error) {
@@ -68,8 +85,11 @@ func hasManifest(dir string) bool {
 	return false
 }
 
-func bulkLoadTxtIntoPebble(db *pebble.DB, txtPath string, onErr ...func()) {
-	f := erwp.MustReturn(erwp.Try(os.Open(txtPath)), onErr...)
+func bulkLoadTxtIntoPebble(db *pebble.DB, txtPath string) error {
+	f, err := os.Open(txtPath)
+	if err != nil {
+		return err
+	}
 	defer f.Close()
 
 	sc := bufio.NewScanner(f)
@@ -85,13 +105,23 @@ func bulkLoadTxtIntoPebble(db *pebble.DB, txtPath string, onErr ...func()) {
 		if code == "" {
 			continue
 		}
-		erwp.MustDo(batch.Set([]byte(code), nil, pebble.NoSync), onErr...)
+		if err := batch.Set([]byte(code), nil, pebble.NoSync); err != nil {
+			return err
+		}
 		n++
 		if n%rowsPerCommit == 0 {
-			erwp.MustDo(batch.Commit(pebble.Sync), onErr...)
+			if err := batch.Commit(pebble.Sync); err != nil {
+				return err
+			}
 			batch = db.NewBatch()
 		}
 	}
-	erwp.MustDo(sc.Err(), onErr...)
-	erwp.MustDo(batch.Commit(pebble.Sync), onErr...)
+	if err := sc.Err(); err != nil {
+		return err
+	}
+	if err := batch.Commit(pebble.Sync); err != nil {
+		return err
+	}
+
+	return nil
 }

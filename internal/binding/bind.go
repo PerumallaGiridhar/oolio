@@ -10,6 +10,10 @@ import (
 )
 
 func BindAndValidateJSONRequest(r *http.Request, dst any) map[string]string {
+	if r == nil || r.Body == nil {
+		return map[string]string{"error": "empty request body"}
+	}
+	defer r.Body.Close()
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 

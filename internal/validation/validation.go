@@ -1,10 +1,10 @@
 package validation
 
 import (
+	"fmt"
 	"log"
 	"reflect"
 
-	erwp "github.com/PerumallaGiridhar/oolio/internal/errorwrap"
 	"github.com/PerumallaGiridhar/oolio/internal/index"
 	"github.com/go-playground/locales/en"
 	ut "github.com/go-playground/universal-translator"
@@ -18,6 +18,13 @@ var (
 	Translator ut.Translator
 )
 
+func isValidPromocodeLength(promocode string) bool {
+	if len(promocode) < 8 || len(promocode) > 10 {
+		return false
+	}
+	return true
+}
+
 func ValidatePromocodeBloom(bf *bloom.BloomFilter) func(fl validator.FieldLevel) bool {
 	return func(fl validator.FieldLevel) bool {
 		field := fl.Field()
@@ -25,7 +32,7 @@ func ValidatePromocodeBloom(bf *bloom.BloomFilter) func(fl validator.FieldLevel)
 			return false
 		}
 		code := field.String()
-		if len(code) < 8 || len(code) > 10 {
+		if !isValidPromocodeLength(code) {
 			return false
 		}
 
@@ -41,33 +48,56 @@ func ValidatePromocodePebble(idx *index.PebbleIndex) func(fl validator.FieldLeve
 			return false
 		}
 		code := field.String()
-		if len(code) < 8 || len(code) > 10 {
+		if !isValidPromocodeLength(code) {
 			return false
 		}
 
-		return idx.IsValid2of3(code)
+		validated, err := idx.IsValid2of3(code)
+		if err != nil {
+			log.Panicf("Error validating promocode")
+		}
+
+		return validated
 	}
 
 }
 
-func RegisterPromocodeValidation(index *index.PebbleIndex) {
+func RegisterPromocodeValidation(index *index.PebbleIndex) error {
 	log.Println("Registering bloom filter validator")
-	erwp.MustDo(Validator.RegisterValidation("promocode", ValidatePromocodePebble(index)))
+	if err := Validator.RegisterValidation("promocode", ValidatePromocodePebble(index)); err != nil {
+		return err
+	}
 	log.Println("Initializing bloom filter completed")
+
+	return nil
 }
 
-func RegisterTranslations() {
-	universalTranslator := ut.New(en.New())
-	Translator, _ := universalTranslator.GetTranslator("en")
-	erwp.MustDo(enTranslations.RegisterDefaultTranslations(Validator, Translator))
+func RegisterTranslations() error {
+	universalTranslator := ut.New(en.New(), en.New())
+	var ok bool
+	Translator, ok = universalTranslator.GetTranslator("en")
+	if !ok {
+		return fmt.Errorf("no translator for 'en'")
+	}
+	if err := enTranslations.RegisterDefaultTranslations(Validator, Translator); err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func HTTPRequestValidatorInit(index *index.PebbleIndex) {
+func HTTPRequestValidatorInit(index *index.PebbleIndex) error {
 
 	log.Println("Initializing request validator...")
 	Validator = validator.New()
 
-	RegisterTranslations()
-	RegisterPromocodeValidation(index)
+	if err := RegisterTranslations(); err != nil {
+		return err
+	}
 
+	if err := RegisterPromocodeValidation(index); err != nil {
+		return err
+	}
+
+	return nil
 }

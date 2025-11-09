@@ -18,16 +18,23 @@ func main() {
 
 	cfg := config.Load()
 
-	index := index.NewPebbleIndex(cfg.PromoFiles)
+	log.Printf("Initializing pebble store")
+	index, err := index.NewPebbleIndex(cfg.PromoFiles)
+	if err != nil {
+		log.Fatalf("initializing pebble index: %v", err)
+	}
 	defer index.Close()
 
-	validation.HTTPRequestValidatorInit(index)
+	if err := validation.HTTPRequestValidatorInit(index); err != nil {
+		log.Fatalf("initializing HTTP request validator: %v", err)
+	}
+
 	server := CreateServer(cfg.Server, routes.NewRouter())
 
 	log.Printf("🚀 starting server on %s", cfg.Server.Addr)
 	go server.Start()
 	<-ctx.Done()
 	log.Println("🛑 shutdown signal received")
-	server.GraceFullShutdown(context.Background())
+	server.GraceFullShutdown(ctx)
 	log.Println("✅ graceful shutdown complete")
 }
